@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<manifest>
+    <remote name="moto-common"
+            fetch="https://github.com/moto-common" />
+
+    <remote name="motorola"
+            fetch="https://github.com/MotorolaMobilityLLC" />
+
+    <!-- Moto G Play 2021 / guamna -->
+    <project name="android_device_motorola_guamna"
+             path="device/motorola/guamna"
+             remote="moto-common"
+             revision="14" />
+
+    <!-- Bengal / SM4250 common tree -->
+    <project name="android_device_motorola_sm4250-common"
+             path="device/motorola/sm4250-common"
+             remote="moto-common"
+             revision="14" />
+
+    <!-- Motorola shared tree -->
+    <project name="android_device_motorola_common"
+             path="device/motorola/common"
+             remote="moto-common"
+             revision="14" />
+
+    <!-- Product targets; contains evolution_guamna.mk -->
+    <project name="android_device_motorola_targets"
+             path="device/motorola/targets"
+             remote="moto-common"
+             revision="master" />
+
+    <!-- Official Motorola kernel source drop -->
+    <project name="kernel-msm"
+             path="kernel/motorola/msm-4.19"
+             remote="motorola"
+             revision="refs/tags/MMI-QZA30.Q4-39-60" />
+</manifest>
