@@ -1,20 +1,22 @@
-name: Build Evolution X guamna
+name: Build Evolution X for guamna
 
 on:
   workflow_dispatch:
     inputs:
       mode:
-        description: "sync, lunch, or build"
+        description: "What to run"
         required: true
         default: "sync"
         type: choice
         options:
           - sync
+          - extract
           - lunch
           - build
 
 jobs:
   build:
+    name: Evolution X guamna
     runs-on: ubuntu-22.04
 
     env:
@@ -27,16 +29,16 @@ jobs:
       TZ: America/Los_Angeles
 
     steps:
-      - name: Checkout this repo
+      - name: Checkout build repo
         uses: actions/checkout@v4
 
       - name: Show runner info
         run: |
-          echo "CPU:"
+          echo "==== CPU ===="
           nproc --all
-          echo "RAM:"
+          echo "==== RAM ===="
           free -h
-          echo "Disk:"
+          echo "==== Disk ===="
           df -h
 
       - name: Free disk space
@@ -48,6 +50,7 @@ jobs:
           sudo rm -rf /opt/hostedtoolcache || true
           sudo docker system prune -af || true
           sudo apt-get clean || true
+          echo "==== Disk after cleanup ===="
           df -h
 
       - name: Install packages
@@ -60,7 +63,8 @@ jobs:
             libncurses5 libncurses5-dev libssl-dev \
             libxml2 libxml2-utils xsltproc \
             rsync python-is-python3 python3 \
-            openjdk-17-jdk
+            openjdk-17-jdk \
+            jq brotli
 
           git lfs install
 
@@ -72,7 +76,11 @@ jobs:
           git config --global user.name "github-actions"
           git config --global user.email "github-actions@github.com"
 
-      - name: Setup ccache
+      - name: Configure private GitHub repo access
+        run: |
+          git config --global url."https://x-access-token:${{ secrets.GH_PAT }}@github.com/".insteadOf "https://github.com/"
+
+      - name: Configure ccache
         run: |
           mkdir -p "$CCACHE_DIR"
           ccache -M 20G
@@ -93,7 +101,7 @@ jobs:
           mkdir -p .repo/local_manifests
           cp "$GITHUB_WORKSPACE/local_manifests/guamna.xml" .repo/local_manifests/guamna.xml
 
-          echo "===== local manifest ====="
+          echo "===== guamna local manifest ====="
           cat .repo/local_manifests/guamna.xml
 
       - name: Sync source
@@ -109,6 +117,7 @@ jobs:
             --optimized-fetch \
             --prune
 
+          echo "==== Disk after sync ===="
           df -h
 
       - name: Check synced trees
@@ -121,37 +130,121 @@ jobs:
           echo "===== device/motorola/sm4250-common ====="
           ls -la device/motorola/sm4250-common || true
 
+          echo "===== device/motorola/common ====="
+          ls -la device/motorola/common || true
+
           echo "===== device/motorola/targets/devices/guamna ====="
           ls -la device/motorola/targets/devices/guamna || true
 
           echo "===== kernel/motorola/msm-4.19 ====="
           ls -la kernel/motorola/msm-4.19 || true
 
-          echo "===== vendor/motorola ====="
-          ls -la vendor/motorola || true
+          echo "===== dump/guamna-los22 ====="
+          ls -la dump/guamna-los22 || true
 
       - name: Stop after sync
         if: ${{ inputs.mode == 'sync' }}
         run: |
           echo "Sync mode complete."
+          echo "Source synced. Extraction/lunch/build skipped."
 
-      - name: Lunch target
+      - name: Normalize dump paths
+        if: ${{ inputs.mode == 'extract' || inputs.mode == 'lunch' || inputs.mode == 'build' }}
+        run: |
+          cd "$WORKDIR"
+
+          echo "===== Dump root before normalization ====="
+          ls -la dump/guamna-los22
+
+          # Your dump has product/, system/, vendor/.
+          # Some extractors place real Android root under system/system/.
+          # Moto-common extraction may expect system_ext at dump root.
+          if [ -d dump/guamna-los22/system/system/system_ext ] && [ ! -e dump/guamna-los22/system_ext ]; then
+            ln -s system/system/system_ext dump/guamna-los22/system_ext
+          fi
+
+          if [ -d dump/guamna-los22/system/system/vendor ] && [ ! -e dump/guamna-los22/system_vendor ]; then
+            ln -s system/system/vendor dump/guamna-los22/system_vendor
+          fi
+
+          if [ -d dump/guamna-los22/system/system/product ] && [ ! -e dump/guamna-los22/system_product ]; then
+            ln -s system/system/product dump/guamna-los22/system_product
+          fi
+
+          echo "===== Dump root after normalization ====="
+          ls -la dump/guamna-los22
+
+          echo "===== Useful dump paths ====="
+          ls -la dump/guamna-los22/vendor || true
+          ls -la dump/guamna-los22/product || true
+          ls -la dump/guamna-los22/system_ext || true
+
+      - name: Extract guamna vendor blobs
+        if: ${{ inputs.mode == 'extract' || inputs.mode == 'lunch' || inputs.mode == 'build' }}
+        run: |
+          cd "$WORKDIR"
+
+          echo "===== Extracting sm4250-common blobs ====="
+          cd "$WORKDIR/device/motorola/sm4250-common"
+          ./extract-files.sh "$WORKDIR/dump/guamna-los22"
+
+          echo "===== Extracting guamna blobs ====="
+          cd "$WORKDIR/device/motorola/guamna"
+          ./extract-files.sh "$WORKDIR/dump/guamna-los22"
+
+          cd "$WORKDIR"
+
+          echo "===== Generated vendor trees ====="
+          ls -la vendor/motorola || true
+          ls -la vendor/motorola/sm4250-common || true
+          ls -la vendor/motorola/guamna || true
+
+          echo "===== Required vendor makefiles ====="
+          ls -la vendor/motorola/sm4250-common/sm4250-common-vendor.mk || true
+          ls -la vendor/motorola/guamna/guamna-vendor.mk || true
+
+      - name: Stop after extraction
+        if: ${{ inputs.mode == 'extract' }}
+        run: |
+          echo "Extract mode complete."
+          echo "Vendor blob extraction finished. Lunch/build skipped."
+
+      - name: Lunch Evolution X target
         if: ${{ inputs.mode == 'lunch' || inputs.mode == 'build' }}
         run: |
           cd "$WORKDIR"
+
           . build/envsetup.sh
 
-          echo "Trying Evolution target first..."
+          echo "===== Available guamna products ====="
+          find device/motorola/targets/devices/guamna -type f -maxdepth 1 -print || true
+
+          echo "===== Lunching evolution_guamna-bp4a-userdebug ====="
           lunch evolution_${DEVICE}-${RELEASE}-${BUILD_TYPE}
 
-      - name: Build ROM
+      - name: Stop after lunch
+        if: ${{ inputs.mode == 'lunch' }}
+        run: |
+          echo "Lunch mode complete."
+          echo "Target lunch passed. Build skipped."
+
+      - name: Build Evolution X
         if: ${{ inputs.mode == 'build' }}
         run: |
           cd "$WORKDIR"
+
           set -o pipefail
+
           . build/envsetup.sh
           lunch evolution_${DEVICE}-${RELEASE}-${BUILD_TYPE}
+
+          echo "===== Starting build ====="
           m evolution 2>&1 | tee "$WORKDIR/build-guamna.log"
+
+      - name: Show ccache stats
+        if: always()
+        run: |
+          ccache -s || true
 
       - name: Upload logs
         if: always()
@@ -164,8 +257,22 @@ jobs:
             /home/runner/evo/out/error.log
             /home/runner/evo/out/soong.log
             /home/runner/evo/out/verbose.log
+            /home/runner/evo/out/.module_paths/Android.bp.list
+            /home/runner/evo/out/target/product/guamna/obj/PACKAGING/check_vintf_all_intermediates/*.log
 
-      - name: Upload output
+      - name: Upload generated vendor makefiles
+        if: ${{ inputs.mode == 'extract' || inputs.mode == 'lunch' || inputs.mode == 'build' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: generated-guamna-vendor-makefiles
+          if-no-files-found: warn
+          path: |
+            /home/runner/evo/vendor/motorola/guamna/*.mk
+            /home/runner/evo/vendor/motorola/guamna/Android.bp
+            /home/runner/evo/vendor/motorola/sm4250-common/*.mk
+            /home/runner/evo/vendor/motorola/sm4250-common/Android.bp
+
+      - name: Upload ROM output
         if: ${{ inputs.mode == 'build' }}
         uses: actions/upload-artifact@v4
         with:
@@ -175,3 +282,4 @@ jobs:
             /home/runner/evo/out/target/product/guamna/*.zip
             /home/runner/evo/out/target/product/guamna/*.img
             /home/runner/evo/out/target/product/guamna/*.txt
+            /home/runner/evo/out/target/product/guamna/obj/PACKAGING/target_files_intermediates/*.zip
