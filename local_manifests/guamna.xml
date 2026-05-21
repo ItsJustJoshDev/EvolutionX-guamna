@@ -6,25 +6,28 @@
     <remote name="motorola"
             fetch="https://github.com/MotorolaMobilityLLC" />
 
+    <remote name="josh"
+            fetch="https://github.com/ItsJustJoshDev" />
+
     <!-- Moto G Play 2021 / guamna -->
     <project name="android_device_motorola_guamna"
              path="device/motorola/guamna"
              remote="moto-common"
              revision="14" />
 
-    <!-- Bengal / SM4250 common tree -->
+    <!-- SM4250 / bengal common tree -->
     <project name="android_device_motorola_sm4250-common"
              path="device/motorola/sm4250-common"
              remote="moto-common"
              revision="14" />
 
-    <!-- Motorola shared tree -->
+    <!-- Motorola common tree -->
     <project name="android_device_motorola_common"
              path="device/motorola/common"
              remote="moto-common"
              revision="14" />
 
-    <!-- Product targets; contains evolution_guamna.mk -->
+    <!-- Product targets, includes evolution_guamna.mk -->
     <project name="android_device_motorola_targets"
              path="device/motorola/targets"
              remote="moto-common"
@@ -35,4 +38,10 @@
              path="kernel/motorola/msm-4.19"
              remote="motorola"
              revision="refs/tags/MMI-QZA30.Q4-39-60" />
+
+    <!-- Your private LineageOS 22.1 blob dump -->
+    <project name="guamna-los22-dump"
+             path="dump/guamna-los22"
+             remote="josh"
+             revision="main" />
 </manifest>
