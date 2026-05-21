@@ -1,0 +1,177 @@
+name: Build Evolution X guamna
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "sync, lunch, or build"
+        required: true
+        default: "sync"
+        type: choice
+        options:
+          - sync
+          - lunch
+          - build
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+
+    env:
+      WORKDIR: /home/runner/evo
+      DEVICE: guamna
+      RELEASE: bp4a
+      BUILD_TYPE: userdebug
+      USE_CCACHE: 1
+      CCACHE_DIR: /home/runner/.ccache
+      TZ: America/Los_Angeles
+
+    steps:
+      - name: Checkout this repo
+        uses: actions/checkout@v4
+
+      - name: Show runner info
+        run: |
+          echo "CPU:"
+          nproc --all
+          echo "RAM:"
+          free -h
+          echo "Disk:"
+          df -h
+
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet || true
+          sudo rm -rf /opt/ghc || true
+          sudo rm -rf /usr/local/share/boost || true
+          sudo rm -rf /usr/local/lib/android || true
+          sudo rm -rf /opt/hostedtoolcache || true
+          sudo docker system prune -af || true
+          sudo apt-get clean || true
+          df -h
+
+      - name: Install packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            git git-lfs curl ccache \
+            flex bison gperf build-essential zip unzip \
+            bc bzip2 lzop pngcrush schedtool squashfs-tools \
+            libncurses5 libncurses5-dev libssl-dev \
+            libxml2 libxml2-utils xsltproc \
+            rsync python-is-python3 python3 \
+            openjdk-17-jdk
+
+          git lfs install
+
+          mkdir -p ~/bin
+          curl https://storage.googleapis.com/git-repo-downloads/repo > ~/bin/repo
+          chmod a+x ~/bin/repo
+          echo "$HOME/bin" >> "$GITHUB_PATH"
+
+          git config --global user.name "github-actions"
+          git config --global user.email "github-actions@github.com"
+
+      - name: Setup ccache
+        run: |
+          mkdir -p "$CCACHE_DIR"
+          ccache -M 20G
+          ccache -o compression=true
+          ccache -s
+
+      - name: Init Evolution X source
+        run: |
+          mkdir -p "$WORKDIR"
+          cd "$WORKDIR"
+
+          repo init \
+            -u https://github.com/Evolution-X/manifest \
+            -b bq2 \
+            --git-lfs \
+            --depth=1
+
+          mkdir -p .repo/local_manifests
+          cp "$GITHUB_WORKSPACE/local_manifests/guamna.xml" .repo/local_manifests/guamna.xml
+
+          echo "===== local manifest ====="
+          cat .repo/local_manifests/guamna.xml
+
+      - name: Sync source
+        run: |
+          cd "$WORKDIR"
+
+          repo sync \
+            -c \
+            -j"$(nproc --all)" \
+            --force-sync \
+            --no-clone-bundle \
+            --no-tags \
+            --optimized-fetch \
+            --prune
+
+          df -h
+
+      - name: Check synced trees
+        run: |
+          cd "$WORKDIR"
+
+          echo "===== device/motorola/guamna ====="
+          ls -la device/motorola/guamna || true
+
+          echo "===== device/motorola/sm4250-common ====="
+          ls -la device/motorola/sm4250-common || true
+
+          echo "===== device/motorola/targets/devices/guamna ====="
+          ls -la device/motorola/targets/devices/guamna || true
+
+          echo "===== kernel/motorola/msm-4.19 ====="
+          ls -la kernel/motorola/msm-4.19 || true
+
+          echo "===== vendor/motorola ====="
+          ls -la vendor/motorola || true
+
+      - name: Stop after sync
+        if: ${{ inputs.mode == 'sync' }}
+        run: |
+          echo "Sync mode complete."
+
+      - name: Lunch target
+        if: ${{ inputs.mode == 'lunch' || inputs.mode == 'build' }}
+        run: |
+          cd "$WORKDIR"
+          . build/envsetup.sh
+
+          echo "Trying Evolution target first..."
+          lunch evolution_${DEVICE}-${RELEASE}-${BUILD_TYPE}
+
+      - name: Build ROM
+        if: ${{ inputs.mode == 'build' }}
+        run: |
+          cd "$WORKDIR"
+          set -o pipefail
+          . build/envsetup.sh
+          lunch evolution_${DEVICE}-${RELEASE}-${BUILD_TYPE}
+          m evolution 2>&1 | tee "$WORKDIR/build-guamna.log"
+
+      - name: Upload logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: guamna-logs
+          if-no-files-found: warn
+          path: |
+            /home/runner/evo/build-guamna.log
+            /home/runner/evo/out/error.log
+            /home/runner/evo/out/soong.log
+            /home/runner/evo/out/verbose.log
+
+      - name: Upload output
+        if: ${{ inputs.mode == 'build' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: evolutionx-guamna-output
+          if-no-files-found: warn
+          path: |
+            /home/runner/evo/out/target/product/guamna/*.zip
+            /home/runner/evo/out/target/product/guamna/*.img
+            /home/runner/evo/out/target/product/guamna/*.txt
